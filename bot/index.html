@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multichain DEX Bot - Pary DEX & Kontrakt Płatności</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-6">
+    <div class="max-w-7xl mx-auto space-y-6">
+        
+        <!-- NAGŁÓWEK ORAZ METAMASK -->
+        <header class="flex flex-col md:flex-row justify-between items-center bg-slate-800 p-5 rounded-xl border border-slate-700 gap-4 shadow-xl">
+            <div>
+                <h1 class="text-2xl font-bold text-emerald-400 flex items-center gap-2">
+                    🤖 Multichain DEX Trading Bot
+                </h1>
+                <p class="text-xs text-slate-400">Wykresy 24h, Lista Par DEX, Dedykowany Kontrakt Płatności & PnL</p>
+            </div>
+            
+            <div class="flex items-center gap-3">
+                <div class="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700">
+                    <span id="status-indicator" class="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+                    <span id="status-text" class="text-xs text-slate-400">Rozłączono</span>
+                </div>
+
+                <button onclick="connectMetaMask()" class="bg-amber-500 hover:bg-amber-600 text-slate-950 font-semibold text-xs px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-lg">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/3/36/MetaMask_Fox.svg" class="w-4 h-4" alt="MetaMask">
+                    <span id="evm-wallet-text">Połącz MetaMask</span>
+                </button>
+                <span id="connected-balance" class="text-xs font-mono text-emerald-400" aria-live="polite"></span>
+            </div>
+        </header>
+
+        <!-- PODSUMOWANIE DANYCH BOTA & CHART.JS -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="bg-slate-800 p-5 rounded-xl border border-slate-700 flex flex-col justify-between">
+                <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Bilans Bota & PnL</h3>
+                <div class="my-3">
+                    <div class="text-xs text-slate-500">Wartość tokenów w portfelu</div>
+                    <div id="total-invested-val" class="text-3xl font-bold font-mono text-white">$0.00</div>
+                </div>
+                <div class="border-t border-slate-700/60 pt-3 flex justify-between items-center">
+                    <div>
+                        <div class="text-xs text-slate-500">Zysk / Strata (PnL)</div>
+                        <div id="total-pnl-usd" class="text-lg font-bold font-mono text-emerald-400">+$0.00</div>
+                    </div>
+                    <div id="total-pnl-badge" class="px-2.5 py-1 rounded text-xs font-bold bg-emerald-900/50 text-emerald-400 border border-emerald-500/30">
+                        +0.00%
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 flex flex-col items-center justify-center">
+                <h4 class="text-xs font-semibold text-slate-400 mb-2 w-full text-left">Alokacja Tokenów</h4>
+                <div class="w-36 h-36">
+                    <canvas id="portfolioChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 flex flex-col items-center justify-center">
+                <h4 class="text-xs font-semibold text-slate-400 mb-2 w-full text-left">Wyniki Pozycji ($ PnL)</h4>
+                <div class="w-full h-36">
+                    <canvas id="pnlChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- FORMULARZ KONFIGURACJI ZLECENIA -->
+            <div class="bg-slate-800 p-5 rounded-xl border border-slate-700 space-y-4">
+                <h2 class="text-lg font-semibold text-slate-200">Dodaj token i zdefiniuj płatność</h2>
+
+                <div>
+                    <label for="trading_api_token" class="block text-xs text-slate-400 mb-1">Token API do ręcznego handlu</label>
+                    <input type="password" id="trading_api_token" autocomplete="off" placeholder="Ustawiony przez operatora serwera" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm">
+                    <p class="text-[10px] text-slate-500 mt-1">Wysyłany tylko w nagłówku żądania handlowego. Nie wpisuj klucza prywatnego portfela.</p>
+                </div>
+                
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">Sieć Blockchain</label>
+                    <select id="network" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm">
+                        <option value="eth">Ethereum (ETH)</option>
+                        <option value="bsc">BNB Chain (BSC)</option>
+                        <option value="solana">Solana (SOL)</option>
+                        <option value="robinhood">Robinhood Chain</option>
+                        <option value="arbitrum">Arbitrum One</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">Adres Kontraktu Tokena Docelowego (Kupowany Token)</label>
+                    <input type="text" id="token_address" placeholder="0x... lub Mint Solana" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm font-mono">
+                </div>
+
+                <!-- NOWE POLE: ADRES KONTRAKTU WALUTY PŁATNOŚCI -->
+                <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-700/50 space-y-2">
+                    <span class="text-xs font-semibold text-amber-400">Kontrakt Tokena Płatności (Za co kupujesz)</span>
+                    <div>
+                        <label class="block text-[10px] text-slate-400 mb-1">Adres kontraktu tokena płatności (opcjonalny; pusty = natywna waluta sieci)</label>
+                        <input type="text" id="quote_token_address" placeholder="0xdAC17F958D2ee523a2206206994597C13D831ec7" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm font-mono">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-[10px] text-slate-400 mb-1">Symbol Płatności</label>
+                            <input type="text" id="quote_symbol" value="USDT" placeholder="USDT, ETH, USDC" class="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-xs">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-400 mb-1">Kwota transakcji</label>
+                            <input type="number" step="any" id="trade_amount" value="100" class="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-xs font-bold text-emerald-400">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NOWE POLE: RĘCZNY KONTRAKT PARY DEX -->
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">Kontrakt Pary / Puli DEX (Opcjonalnie)</label>
+                    <input type="text" id="pair_contract_address" placeholder="0x... (Wklej jeśli chcesz konkretną pulę)" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm font-mono">
+                </div>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Cena wejścia ($)</label>
+                        <input type="number" step="any" id="entry_price" placeholder="np. 0.000012" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Ilość w portfelu</label>
+                        <input type="number" step="any" id="amount_held" placeholder="np. 50000" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm font-mono">
+                    </div>
+                </div>
+
+                <div class="border-t border-slate-700 pt-3 space-y-2">
+                    <span class="text-xs font-semibold text-cyan-400">Progi w Procentach (%)</span>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input type="number" step="any" id="buy_percent" placeholder="Kup % (np. -5)" class="bg-slate-900 border border-slate-700 rounded p-2 text-sm">
+                        <input type="number" step="any" id="sell_percent" placeholder="Sprzedaj % (np. 10)" class="bg-slate-900 border border-slate-700 rounded p-2 text-sm">
+                    </div>
+                </div>
+
+                <div class="border-t border-slate-700 pt-3 space-y-2">
+                    <span class="text-xs font-semibold text-emerald-400">Progi w Stałej Cenie ($)</span>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input type="number" step="any" id="target_buy_price" placeholder="Kup при $" class="bg-slate-900 border border-slate-700 rounded p-2 text-sm">
+                        <input type="number" step="any" id="target_sell_price" placeholder="Sprzedaj przy $" class="bg-slate-900 border border-slate-700 rounded p-2 text-sm">
+                    </div>
+                </div>
+
+                <button onclick="addPair()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 rounded transition text-sm shadow-md">
+                    + Dodaj Token do Bota
+                </button>
+            </div>
+
+            <!-- KARTY COINÓW Z WYKRESEM 24H I PARAMI DEX -->
+            <div class="lg:col-span-2 space-y-6">
+                <h2 class="text-lg font-semibold text-slate-200">Monitored Tokens & Embedded Live Charts</h2>
+                
+                <div id="tokens-container" class="space-y-6">
+                    <div class="bg-slate-800 p-8 text-center rounded-xl border border-slate-700 text-slate-500">
+                        Brak aktywnych tokenów. Dodaj token po lewej stronie.
+                    </div>
+                </div>
+
+                <!-- LOGI OPERACYJNE -->
+                <div class="bg-slate-800 p-5 rounded-xl border border-slate-700 space-y-2">
+                    <h3 class="text-xs font-semibold text-slate-400 uppercase">Dziennik transakcji bota</h3>
+                    <div id="logs-container" class="bg-slate-900 p-3 rounded h-28 overflow-y-auto font-mono text-xs text-slate-400 space-y-1">
+                        <div>[System] Oczekiwanie na sygnały transakcyjne...</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        let ws;
+        let portfolioChart, pnlChart;
+        const ohlcvCache = new Map();
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, character => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            })[character]);
+        }
+
+        function safeExternalUrl(value) {
+            try {
+                const url = new URL(value);
+                return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+            } catch {
+                return '';
+            }
+        }
+
+        function initCharts() {
+            const ctxP = document.getElementById('portfolioChart').getContext('2d');
+            portfolioChart = new Chart(ctxP, {
+                type: 'doughnut',
+                data: { labels: [], datasets: [{ data: [], backgroundColor: ['#10b981', '#06b6d4', '#f59e0b', '#8b5cf6', '#ec4899'] }] },
+                options: { plugins: { legend: { display: false } }, responsive: true, maintainAspectRatio: false }
+            });
+
+            const ctxPnL = document.getElementById('pnlChart').getContext('2d');
+            pnlChart = new Chart(ctxPnL, {
+                type: 'bar',
+                data: { labels: [], datasets: [{ label: 'PnL ($)', data: [], backgroundColor: [] }] },
+                options: { plugins: { legend: { display: false } }, responsive: true, maintainAspectRatio: false }
+            });
+        }
+
+        async function connectMetaMask() {
+            if (window.ethereum) {
+                try {
+                    const provider = new ethers.providers.Web3Provider(window.ethereum);
+                    await provider.send("eth_requestAccounts", []);
+                    const signer = provider.getSigner();
+                    const addr = await signer.getAddress();
+                    document.getElementById('evm-wallet-text').innerText = addr.substring(0, 6) + "..." + addr.substring(38);
+                    const [network, balance] = await Promise.all([
+                        provider.getNetwork(),
+                        provider.getBalance(addr)
+                    ]);
+                    const symbols = { 1: 'ETH', 56: 'BNB', 42161: 'ETH' };
+                    const symbol = symbols[network.chainId] || network.name.toUpperCase();
+                    document.getElementById('connected-balance').innerText =
+                        `${Number(ethers.utils.formatEther(balance)).toFixed(4)} ${symbol}`;
+                } catch (e) { alert("Błąd MetaMask: " + e.message); }
+            } else alert("Instalacja MetaMask wymagana!");
+        }
+
+        function connectWebSocket() {
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
+            ws.onopen = () => {
+                document.getElementById('status-indicator').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500';
+                document.getElementById('status-text').innerText = 'Połączono';
+            };
+
+            ws.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                if (message.type === 'PRICE_UPDATE') {
+                    renderTokens(message.data);
+                    renderStats(message.stats);
+                    updateCharts(message.data);
+                    renderLogs(message.logs);
+                }
+            };
+
+            ws.onclose = () => {
+                document.getElementById('status-indicator').className = 'w-2.5 h-2.5 rounded-full bg-red-500';
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        function renderStats(stats) {
+            if (!stats) return;
+            document.getElementById('total-invested-val').innerText = `$${stats.total_invested.toFixed(2)}`;
+            const pnlUsdEl = document.getElementById('total-pnl-usd');
+            const pnlBadgeEl = document.getElementById('total-pnl-badge');
+
+            pnlUsdEl.innerText = `${stats.total_pnl_usd >= 0 ? '+' : ''}$${stats.total_pnl_usd.toFixed(2)}`;
+            pnlBadgeEl.innerText = `${stats.total_pnl_percent >= 0 ? '+' : ''}${stats.total_pnl_percent.toFixed(2)}%`;
+
+            if (stats.total_pnl_usd >= 0) {
+                pnlUsdEl.className = "text-lg font-bold font-mono text-emerald-400";
+                pnlBadgeEl.className = "px-2.5 py-1 rounded text-xs font-bold bg-emerald-900/50 text-emerald-400 border border-emerald-500/30";
+            } else {
+                pnlUsdEl.className = "text-lg font-bold font-mono text-red-400";
+                pnlBadgeEl.className = "px-2.5 py-1 rounded text-xs font-bold bg-red-900/50 text-red-400 border border-red-500/30";
+            }
+        }
+
+        function updateCharts(tokens) {
+            if (!tokens) return;
+            portfolioChart.data.labels = tokens.map(t => t.token_symbol);
+            portfolioChart.data.datasets[0].data = tokens.map(t => t.holding_value_usd || 0);
+            portfolioChart.update();
+
+            pnlChart.data.labels = tokens.map(t => t.token_symbol);
+            pnlChart.data.datasets[0].data = tokens.map(t => t.unrealized_pnl_usd || 0);
+            pnlChart.data.datasets[0].backgroundColor = tokens.map(t => t.unrealized_pnl_usd >= 0 ? '#10b981' : '#ef4444');
+            pnlChart.update();
+        }
+
+        function renderTokens(tokens) {
+            const container = document.getElementById('tokens-container');
+            if (!tokens || tokens.length === 0) {
+                container.innerHTML = `<div class="bg-slate-800 p-8 text-center rounded-xl border border-slate-700 text-slate-500">Brak aktywnych tokenów. Dodaj token po lewej stronie.</div>`;
+                return;
+            }
+
+            const oldCharts = [...container.querySelectorAll('[data-ohlcv-chart]')];
+            const tradeValues = new Map([...container.querySelectorAll('[data-trade-input]')].map(input => [
+                `${input.dataset.tradePair}:${input.dataset.tradeInput}`,
+                input.value
+            ]));
+            const tradeMessages = new Map([...container.querySelectorAll('[data-trade-result]')].map(result => [
+                result.dataset.tradeResult,
+                { text: result.textContent, href: result.dataset.txUrl || '' }
+            ]));
+            container.innerHTML = tokens.map(t => {
+                const defaultLogo = "https://www.geckoterminal.com/favicon.ico";
+                const logo = safeExternalUrl(t.logo_url) || defaultLogo;
+                const changeVal = t.change_24h || 0.0;
+                const changeClass = changeVal >= 0 ? 'text-emerald-400' : 'text-red-400';
+                const pnlClass = t.unrealized_pnl_usd >= 0 ? 'text-emerald-400' : 'text-red-400';
+
+                let dexPairsSelect = '<span class="text-xs text-slate-500">Brak wykrytych par DEX</span>';
+                if (t.dex_pairs_list && t.dex_pairs_list.length > 0) {
+                    dexPairsSelect = `<select data-pair-id="${escapeHtml(t.pair_id)}" data-active-pool="${escapeHtml(t.pool_address)}" aria-label="Wybierz pulę DEX" class="bg-slate-900 border border-slate-700 text-xs rounded p-1.5 text-slate-200">
+                        ${t.dex_pairs_list.map(p => `<option value="${escapeHtml(p.pool_address)}" ${p.pool_address === t.pool_address ? 'selected' : ''}>${escapeHtml(p.dex_name)}: ${escapeHtml(p.pair_name)} (${p.price_usd ? `$${Number(p.price_usd).toPrecision(6)}` : '---'})</option>`).join('')}
+                    </select>`;
+                }
+
+                const chartKey = `${t.network}:${t.token_address}:${t.pool_address}`.toLowerCase();
+                const ohlcvChart = t.pool_address
+                    ? `<div data-ohlcv-chart data-pair-id="${escapeHtml(t.pair_id)}" data-chart-key="${escapeHtml(chartKey)}" class="w-full h-[320px] rounded-xl border border-slate-700/60 bg-slate-900/50" role="img" aria-label="Świecowy wykres 24h ${escapeHtml(t.token_symbol)}">Ładowanie świec GeckoTerminal…</div>`
+                    : `<div class="h-[120px] flex items-center justify-center text-slate-500 bg-slate-900/50 rounded-xl">Wykres niedostępny dla podanej puli</div>`;
+
+                const website = safeExternalUrl(t.website);
+                const twitter = safeExternalUrl(t.twitter);
+                const webLink = website ? `<a href="${escapeHtml(website)}" target="_blank" rel="noopener noreferrer" class="text-slate-400 hover:text-emerald-400"><i class="fa-solid fa-globe"></i> WWW</a>` : '';
+                const twitLink = twitter ? `<a href="${escapeHtml(twitter)}" target="_blank" rel="noopener noreferrer" class="text-slate-400 hover:text-cyan-400"><i class="fa-brands fa-x-twitter"></i> Twitter</a>` : '';
+
+                return `
+                    <div data-network="${escapeHtml(t.network)}" data-token-address="${escapeHtml(t.token_address)}" class="bg-slate-800 rounded-xl border border-slate-700 p-5 space-y-4 shadow-lg">
+                        <div class="flex flex-wrap justify-between items-center gap-4 border-b border-slate-700/60 pb-3">
+                            <div class="flex items-center gap-3">
+                                <img src="${escapeHtml(logo)}" onerror="this.src='${defaultLogo}'" alt="" class="w-10 h-10 rounded-full bg-slate-700 object-cover">
+                                <div>
+                                    <div class="text-lg font-bold text-white flex items-center gap-2">
+                                        ${escapeHtml(t.token_symbol)} / ${escapeHtml(t.quote_symbol)}
+                                        <span class="text-xs bg-slate-700 px-2 py-0.5 rounded text-slate-300 font-normal">${escapeHtml(t.network)}</span>
+                                    </div>
+                                    <div class="flex gap-3 text-xs pt-0.5">${webLink} ${twitLink}</div>
+                                </div>
+                            </div>
+
+                            <div class="text-right">
+                                <div class="text-xl font-bold font-mono text-emerald-400">$${t.current_price ? t.current_price.toFixed(6) : '---'}</div>
+                                <div class="text-xs ${changeClass} font-semibold">${changeVal >= 0 ? '+' : ''}${changeVal.toFixed(2)}% (24h)</div>
+                            </div>
+                        </div>
+
+                        <!-- SEKCJA PARY DEX I KONTRAKTU PŁATNOŚCI -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-900/70 p-3 rounded-lg border border-slate-700/50 text-xs">
+                            <div>
+                                <span class="text-slate-400 block mb-1">Dostępne Pary DEX na giełdach:</span>
+                                ${dexPairsSelect}
+                            </div>
+                            <div>
+                                <span class="text-slate-400 block mb-1">Kontrakt Płatności (Za co kupujesz):</span>
+                                <div class="font-mono text-amber-400 bg-slate-900 p-1.5 rounded border border-slate-800 truncate" title="${escapeHtml(t.quote_token_address)}">
+                                    ${escapeHtml(t.quote_token_address)}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- METRYKI BOTA -->
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-900/40 p-3 rounded-lg border border-slate-700/30 text-xs">
+                            <div>
+                                <span class="text-slate-500 block">Posiadane tokeny:</span>
+                                <span class="font-bold font-mono text-slate-200">${escapeHtml(t.amount_held)} ${escapeHtml(t.token_symbol)}</span>
+                            </div>
+                            <div>
+                                <span class="text-slate-500 block">Cena zakupu / wejścia:</span>
+                                <span class="font-bold font-mono text-slate-200">$${t.entry_price ? t.entry_price.toFixed(6) : '---'}</span>
+                            </div>
+                            <div>
+                                <span class="text-slate-500 block">Wynik PnL ($):</span>
+                                <span class="font-bold font-mono ${pnlClass}">${t.unrealized_pnl_usd >= 0 ? '+' : ''}$${t.unrealized_pnl_usd.toFixed(2)} (${t.unrealized_pnl_percent.toFixed(2)}%)</span>
+                            </div>
+                            <div>
+                                <span class="text-slate-500 block">Sygnał Kup / Sprzedaj:</span>
+                                <span class="text-emerald-400 font-mono">K: $${t.target_buy_price ? t.target_buy_price.toFixed(4) : '--'}</span> / 
+                                <span class="text-red-400 font-mono">S: $${t.target_sell_price ? t.target_sell_price.toFixed(4) : '--'}</span>
+                            </div>
+                        </div>
+
+                        <!-- EMBEDDED WYKRES 24H -->
+                        <div>
+                            <h4 class="text-xs font-semibold text-slate-400 mb-2">Wykres 24h z wybranej puli DEX</h4>
+                            ${ohlcvChart}
+                        </div>
+
+                        <div class="border-t border-slate-700/60 pt-3 space-y-2">
+                            <h4 class="text-xs font-semibold text-amber-300">Ręczne zlecenie on-chain</h4>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <label class="text-[10px] text-slate-400">
+                                    Kwota kupna (${escapeHtml(t.quote_symbol)}; jednostki tokena płatności)
+                                    <input data-trade-pair="${escapeHtml(t.pair_id)}" data-trade-input="buy-amount" type="number" min="0" step="any" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs" placeholder="np. 0.01">
+                                </label>
+                                <label class="text-[10px] text-slate-400">
+                                    Procent salda do sprzedaży
+                                    <input data-trade-pair="${escapeHtml(t.pair_id)}" data-trade-input="sell-percent" type="number" min="0.01" max="100" step="any" value="100" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs">
+                                </label>
+                            </div>
+                            <div class="flex gap-2">
+                                <button data-trade-pair="${escapeHtml(t.pair_id)}" data-trade-side="buy" class="flex-1 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white px-3 py-2 rounded text-xs">Kup</button>
+                                <button data-trade-pair="${escapeHtml(t.pair_id)}" data-trade-side="sell" class="flex-1 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white px-3 py-2 rounded text-xs">Sprzedaj</button>
+                            </div>
+                            <p data-trade-result="${escapeHtml(t.pair_id)}" class="hidden break-all text-xs text-slate-300" aria-live="polite"></p>
+                            <p class="text-[10px] text-slate-500">Wysyłka swapu wymaga X-Trading-API-Token oraz TRADING_PRIVATE_KEY po stronie serwera. Progi cenowe tylko raportują sygnał i nie składają zleceń.</p>
+                        </div>
+
+                        <div class="flex justify-end border-t border-slate-700/60 pt-2">
+                            <button data-remove-pair="${escapeHtml(t.pair_id)}" class="bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white px-3 py-1 rounded text-xs transition">
+                                Usuń z bota
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.querySelectorAll('[data-ohlcv-chart]').forEach(chart => {
+                const previousChart = oldCharts.find(existing =>
+                    existing.dataset.pairId === chart.dataset.pairId &&
+                    existing.dataset.chartKey === chart.dataset.chartKey
+                );
+                if (previousChart) {
+                    chart.replaceWith(previousChart);
+                } else {
+                    const token = tokens.find(item => item.pair_id === chart.dataset.pairId);
+                    loadOHLCVChart(chart, token.network, token.token_address, token.pool_address);
+                }
+            });
+            container.querySelectorAll('select[data-pair-id]').forEach(select => {
+                select.addEventListener('change', () => selectPairPool(select.dataset.pairId, select.value, select));
+            });
+            container.querySelectorAll('[data-remove-pair]').forEach(button => {
+                button.addEventListener('click', () => removePair(button.dataset.removePair));
+            });
+            container.querySelectorAll('[data-trade-input]').forEach(input => {
+                const value = tradeValues.get(`${input.dataset.tradePair}:${input.dataset.tradeInput}`);
+                if (value !== undefined) input.value = value;
+            });
+            container.querySelectorAll('[data-trade-result]').forEach(result => {
+                const message = tradeMessages.get(result.dataset.tradeResult);
+                if (message) {
+                    result.textContent = message.text;
+                    result.classList.remove('hidden');
+                    if (message.href) {
+                        const link = document.createElement('a');
+                        link.href = message.href;
+                        link.target = '_blank';
+                        link.rel = 'noopener noreferrer';
+                        link.textContent = ' Zobacz transakcję';
+                        link.className = 'text-cyan-400 underline';
+                        result.append(link);
+                        result.dataset.txUrl = message.href;
+                    }
+                }
+            });
+            container.querySelectorAll('[data-trade-side]').forEach(button => {
+                button.disabled = button.closest('[data-network]')?.dataset.network === 'solana';
+                button.addEventListener('click', () => submitTrade(button.dataset.tradePair, button.dataset.tradeSide, button));
+            });
+        }
+
+        async function submitTrade(pairId, side, button) {
+            const apiToken = document.getElementById('trading_api_token').value.trim();
+            const result = document.querySelector(`[data-trade-result="${CSS.escape(pairId)}"]`);
+            const card = button.closest('[data-network]');
+            if (!apiToken) {
+                result.textContent = 'Wpisz token API ustawiony przez operatora.';
+                result.classList.remove('hidden');
+                return;
+            }
+            const amountInput = card.querySelector(`[data-trade-input="${side === 'buy' ? 'buy-amount' : 'sell-percent'}"]`);
+            const amount = Number(amountInput.value);
+            if (!Number.isFinite(amount) || amount <= 0 || (side === 'sell' && amount > 100)) {
+                result.textContent = side === 'buy'
+                    ? 'Podaj dodatnią kwotę kupna w jednostkach tokena płatności.'
+                    : 'Procent sprzedaży musi być większy od 0 i nie większy niż 100.';
+                result.classList.remove('hidden');
+                return;
+            }
+            const order = side === 'buy'
+                ? { side, buy_amount: amount }
+                : { side, sell_amount_percent: amount };
+            const description = side === 'buy'
+                ? `kupić token za ${amount} jednostek waluty płatności`
+                : `sprzedać ${amount}% salda tokena`;
+            if (!confirm(`Czy na pewno chcesz ${description}? Ta operacja wysyła transakcję on-chain.`)) return;
+
+            button.disabled = true;
+            result.textContent = 'Wysyłanie transakcji…';
+            result.classList.remove('hidden');
+            result.dataset.txUrl = '';
+            try {
+                const response = await fetch(`/api/pairs/${encodeURIComponent(pairId)}/trade`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Trading-API-Token': apiToken
+                    },
+                    body: JSON.stringify(order)
+                });
+                const body = await response.json();
+                if (!response.ok) throw new Error(body.detail || 'Nie udało się wysłać transakcji.');
+                result.textContent = `Zlecenie wysłane (${body.tx_hash}).`;
+                const explorer = {
+                    eth: 'https://etherscan.io/tx/',
+                    ethereum: 'https://etherscan.io/tx/',
+                    bsc: 'https://bscscan.com/tx/',
+                    bnb: 'https://bscscan.com/tx/',
+                    arbitrum: 'https://arbiscan.io/tx/',
+                    robinhood: 'https://arbiscan.io/tx/'
+                }[card.dataset.network];
+                if (explorer && /^0x[a-fA-F0-9]{64}$/.test(body.tx_hash)) {
+                    const link = document.createElement('a');
+                    link.href = `${explorer}${body.tx_hash}`;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    link.textContent = ' Zobacz transakcję';
+                    link.className = 'text-cyan-400 underline';
+                    result.append(link);
+                    result.dataset.txUrl = link.href;
+                }
+            } catch (error) {
+                result.textContent = `Błąd zlecenia: ${error.message}`;
+            } finally {
+                button.disabled = card.dataset.network === 'solana';
+            }
+        }
+
+        async function selectPairPool(pairId, poolAddress, select) {
+            select.disabled = true;
+            try {
+                const response = await fetch(`/api/pairs/${encodeURIComponent(pairId)}/pool`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pool_address: poolAddress })
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || 'Nie udało się wybrać puli.');
+
+                select.dataset.activePool = poolAddress;
+                const card = select.closest('[data-network]');
+                const chart = card?.querySelector('[data-ohlcv-chart]');
+                if (chart) {
+                    chart.dataset.chartKey = `${card.dataset.network}:${card.dataset.tokenAddress}:${poolAddress}`.toLowerCase();
+                    loadOHLCVChart(chart, card.dataset.network, card.dataset.tokenAddress, poolAddress);
+                }
+            } catch (error) {
+                alert(`Błąd wyboru puli: ${error.message}`);
+                select.value = select.dataset.activePool;
+            } finally {
+                select.disabled = false;
+            }
+        }
+
+        async function loadOHLCVChart(element, network, tokenAddress, poolAddress) {
+            if (!window.Plotly) {
+                element.textContent = 'Biblioteka wykresu jest niedostępna.';
+                return;
+            }
+            const cacheKey = `${network}:${tokenAddress}:${poolAddress}`.toLowerCase();
+            try {
+                let candles = ohlcvCache.get(cacheKey);
+                if (!candles) {
+                    const url = `/api/tokens/${encodeURIComponent(network)}/${encodeURIComponent(tokenAddress)}?pool_address=${encodeURIComponent(poolAddress)}`;
+                    const response = await fetch(url);
+                    const payload = await response.json();
+                    if (!response.ok) throw new Error(payload.detail || 'Nie udało się pobrać świec.');
+                    candles = payload.ohlcv_24h;
+                    ohlcvCache.set(cacheKey, candles);
+                }
+                await Plotly.react(element, [{
+                    x: candles.map(candle => candle.timestamp * 1000),
+                    open: candles.map(candle => candle.open),
+                    high: candles.map(candle => candle.high),
+                    low: candles.map(candle => candle.low),
+                    close: candles.map(candle => candle.close),
+                    type: 'candlestick',
+                    increasing: { line: { color: '#10b981' } },
+                    decreasing: { line: { color: '#ef4444' } }
+                }], {
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(15,23,42,0.5)',
+                    font: { color: '#cbd5e1' },
+                    margin: { l: 55, r: 20, t: 12, b: 35 },
+                    xaxis: { type: 'date', rangeslider: { visible: false }, gridcolor: '#334155' },
+                    yaxis: { title: 'USD', gridcolor: '#334155', automargin: true },
+                    showlegend: false,
+                    uirevision: cacheKey
+                }, { responsive: true, displaylogo: false });
+            } catch (error) {
+                element.textContent = `Błąd wykresu GeckoTerminal: ${error.message}`;
+            }
+        }
+
+        function renderLogs(logs) {
+            const container = document.getElementById('logs-container');
+            if (logs && logs.length > 0) {
+                container.innerHTML = logs.map(l => `<div>${escapeHtml(l)}</div>`).join('');
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+
+        async function addPair() {
+            const tokenAddr = document.getElementById('token_address').value.trim();
+            const quoteAddr = document.getElementById('quote_token_address').value.trim();
+            
+            if (!tokenAddr) {
+                alert("Podaj adres kontraktu kupowanego tokena!");
+                return;
+            }
+
+            const nativeSymbols = { eth: 'ETH', bsc: 'BNB', solana: 'SOL', arbitrum: 'ETH', robinhood: 'ETH' };
+            const payload = {
+                network: document.getElementById('network').value,
+                token_address: tokenAddr,
+                quote_token_address: quoteAddr,
+                quote_symbol: document.getElementById('quote_symbol').value.toUpperCase().trim() || (quoteAddr ? "USDT" : nativeSymbols[document.getElementById('network').value]),
+                trade_amount: parseFloat(document.getElementById('trade_amount').value) || 100.0,
+                entry_price: parseFloat(document.getElementById('entry_price').value) || null,
+                amount_held: parseFloat(document.getElementById('amount_held').value) || 0.0,
+                target_buy_price: parseFloat(document.getElementById('target_buy_price').value) || null,
+                target_sell_price: parseFloat(document.getElementById('target_sell_price').value) || null,
+                buy_percent: parseFloat(document.getElementById('buy_percent').value) || null,
+                sell_percent: parseFloat(document.getElementById('sell_percent').value) || null,
+                pair_contract_address: document.getElementById('pair_contract_address').value.trim() || null
+            };
+
+            const response = await fetch('/api/pairs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                alert(`Błąd dodawania tokena: ${result.detail || 'Nieprawidłowe dane.'}`);
+                return;
+            }
+
+            document.getElementById('token_address').value = '';
+            document.getElementById('pair_contract_address').value = '';
+            document.getElementById('entry_price').value = '';
+            document.getElementById('amount_held').value = '';
+            document.getElementById('target_buy_price').value = '';
+            document.getElementById('target_sell_price').value = '';
+            document.getElementById('buy_percent').value = '';
+            document.getElementById('sell_percent').value = '';
+        }
+
+        async function removePair(pairId) {
+            const response = await fetch(`/api/pairs/${encodeURIComponent(pairId)}`, { method: 'DELETE' });
+            if (!response.ok) alert('Nie udało się usunąć tokena.');
+        }
+
+        initCharts();
+        connectWebSocket();
+    </script>
+</body>
+</html>

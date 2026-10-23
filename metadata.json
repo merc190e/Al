@@ -1,0 +1,20 @@
+{
+  "name": "AML",
+  "symbol": "AL",
+  "decimals": 18,
+  "totalSupply": "1000000",
+  "description": "AML (AL) is a decentralized compliance-focused token deployed on Robinhood Chain, designed with automated creator rewards and sustainable protocol liquidity.",
+  "image": "https://aml-token.io/assets/logo.png",
+  "external_url": "https://aml-token.io",
+  "socials": {
+    "website": "https://aml-token.io",
+    "twitter": "https://x.com/AMLTokenOfficial",
+    "telegram": "https://t.me/AMLTokenPortal"
+  },
+  "tokenomics": {
+    "totalSupply": "1,000,000 AL",
+    "buyTax": "3% (1% Creator, 2% Liquidity Pool)",
+    "sellTax": "3% (1% Creator, 2% Liquidity Pool)",
+    "maxTaxCap": "4% (Hardcoded in Contract)"
+  }
+}
