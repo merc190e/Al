@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "one_submitted_order" ON "orders" ((1)) WHERE "status" = 'submitted';--> statement-breakpoint
+CREATE UNIQUE INDEX "one_requested_exit_per_mint" ON "orders" ("mint") WHERE "status" = 'requested';
